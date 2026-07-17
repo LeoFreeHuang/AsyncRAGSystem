@@ -6,7 +6,7 @@ AsyncRAGSystem - 全局配置管理
 """
 
 from pydantic_settings import BaseSettings
-from pydantic import Field
+from pydantic import Field, field_validator
 
 
 class Settings(BaseSettings):
@@ -62,7 +62,7 @@ class Settings(BaseSettings):
 
     # ==================== Redis 缓存配置 ====================
     REDIS_HOST: str = Field(default="localhost", description="Redis 服务主机")
-    REDIS_PORT: int = Field(default=6379, description="Redis 服务端口")
+    REDIS_PORT: int = Field(default=6380, description="Redis 服务端口")
     REDIS_DB: int = Field(default=0, description="Redis 数据库编号")
     REDIS_PASSWORD: str = Field(default="", description="Redis 密码 (无密码则留空)")
     # 精确匹配缓存 TTL (秒)
@@ -120,6 +120,26 @@ class Settings(BaseSettings):
     MAX_UPLOAD_SIZE_MB: int = Field(
         default=50, description="单次上传文件最大大小 (MB)"
     )
+
+    @field_validator("OLLAMA_HOST", mode="before")
+    @classmethod
+    def normalize_ollama_host(cls, v: str) -> str:
+        """
+        规范化 OLLAMA_HOST，确保包含协议和端口。
+        支持: 'localhost', 'localhost:11434', 'http://localhost:11434', '0.0.0.0:11434'
+        """
+        # 1. 补齐协议前缀
+        if not v.startswith(("http://", "https://")):
+            v = f"http://{v}"
+        # 2. 去除尾部斜杠
+        v = v.rstrip("/")
+        # 3. 如果只有 host 没有端口，补默认端口 11434
+        #    格式: http://host 或 http://host:port
+        #    去掉协议后，检查是否包含端口分隔符
+        host_part = v.split("://", 1)[1] if "://" in v else v
+        if ":" not in host_part:
+            v = f"{v}:11434"
+        return v
 
     @property
     def milvus_uri(self) -> str:
