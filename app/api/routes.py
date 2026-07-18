@@ -17,7 +17,7 @@ import logging
 from datetime import datetime
 from typing import List
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import StreamingResponse
 
 from app.api.schemas import (
@@ -57,8 +57,10 @@ router = APIRouter(prefix="/api/v1", tags=["RAG System"])
 
 @router.get("/health", response_model=HealthResponse)
 async def health_check(
+    request: Request,
     embedding_service: EmbeddingService = Depends(get_embedding_service),
     vector_store: VectorStoreService = Depends(get_vector_store),
+   
 ):
     """
     系统健康检查。
@@ -69,6 +71,18 @@ async def health_check(
     Returns:
         HealthResponse: 各组件连接状态和系统信息。
     """
+    
+    # 检查用户请求是否经过Nginx转发
+    nginx_ok = False
+    client_host = request.client.host
+    forwarded = request.headers.get("X-Forwarded-For")
+    if forwarded is not None:
+        nginx_ok = True
+    if nginx_ok:
+        logger.info (f"用户请求已通过Nginx转发, Nginx服务正常: (client_host: {client_host}, X-Forwarded-For: {forwarded})")
+    else:
+        logger.warning(f"用户请求未通过Nginx转发")
+
     # 检查 Ollama 连接
     ollama_ok = False
     try:

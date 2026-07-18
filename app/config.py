@@ -16,7 +16,8 @@ class Settings(BaseSettings):
     """
 
     # ==================== 服务端配置 ====================
-    HOST: str = Field(default="0.0.0.0", description="FastAPI 监听地址")
+    #HOST配置为127.0.0.1，目的是防止外部客户端绕过Nginx直接访问FastAPI服务
+    HOST: str = Field(default="127.0.0.1", description="FastAPI 监听地址")
     PORT: int = Field(default=8000, description="FastAPI 监听端口")
     WORKERS: int = Field(default=4, description="Uvicorn worker 进程数")
 

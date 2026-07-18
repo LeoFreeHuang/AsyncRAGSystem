@@ -123,6 +123,9 @@ curl -X POST http://localhost:8000/api/v1/query \
 
 # 缓存统计
 curl http://localhost:8000/api/v1/cache/stats
+
+#验证请求是否由Nginx转发
+curl http://localhost:8080/api/v1/health
 ```
 
 ## API 端点
