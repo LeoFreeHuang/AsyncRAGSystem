@@ -74,7 +74,7 @@ async def health_check(
     
     # 检查用户请求是否经过Nginx转发
     nginx_ok = False
-    client_host = request.client.host
+    client_host = request.client.host if request.client else None
     forwarded = request.headers.get("X-Forwarded-For")
     if forwarded is not None:
         nginx_ok = True

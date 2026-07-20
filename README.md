@@ -101,8 +101,8 @@ python -m app.main
 # 生产模式 (4 workers)
 uvicorn app.main:app --host 127.0.0.1 --port 8000 --workers 4
 
-# Nginx 网关 (可选)
-nginx -c nginx/nginx.conf
+# Windows下启用Nginx 网关 
+在Nginx安装根目录执行: start nginx
 ```
 
 ### 4. 验证
