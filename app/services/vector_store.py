@@ -74,18 +74,19 @@ class VectorStoreService:
         # 向量维度 (在 ensure_collection 时确定)
         self._dimension: int | None = None
 
-    def _get_client(self) -> MilvusClient:
-        """
-        获取 Milvus 客户端 (懒加载单例)。
-        MilvusClient 是线程安全的，可以在多线程环境中共享。
-        """
+    async def startup(self) -> MilvusClient:
         if self._client is None:
             logger.info(f"正在连接 Milvus: {settings.milvus_uri}")
             self._client = MilvusClient(
                 uri=settings.milvus_uri,
-                token=settings.MILVUS_TOKEN,
+                token=settings.MILVUS_TOKEN
             )
             logger.info("Milvus 连接成功")
+        return self._client
+
+    def _get_client(self) -> MilvusClient:
+        if self._client is None:
+            raise RuntimeError("Milvus未初始化，请先调用startup方法初始化")
         return self._client
 
     async def _run_sync(self, func, *args, **kwargs):

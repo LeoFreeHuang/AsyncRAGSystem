@@ -13,7 +13,7 @@ AsyncRAGSystem - 嵌入服务 (Embedding Service)
 
 import asyncio
 import logging
-from typing import List
+from typing import List, Optional
 
 import httpx
 
@@ -34,7 +34,7 @@ class EmbeddingService:
         vectors = await service.embed_texts(["你好，世界", "RAG系统"])
     """
 
-    def __init__(self):
+    def __init__(self, dimension: Optional[int]  = None):
         """初始化嵌入服务，创建HTTP连接池和并发信号量"""
         # httpx 连接池配置: 支持100+并发连接的复用
         # 连接池大小 = 最大并发嵌入请求数 * 2 (留有余量)
@@ -46,21 +46,24 @@ class EmbeddingService:
         self._semaphore = asyncio.Semaphore(settings.OLLAMA_EMBED_MAX_CONCURRENT)
 
         # 嵌入向量维度缓存 (首次调用时自动探测)
-        self._dimension: int | None = None
+        self._dimension: int | None = dimension
 
-    async def _get_client(self) -> httpx.AsyncClient:
-        """
-        延迟初始化 HTTP 客户端 (在事件循环中创建)。
-        httpx.AsyncClient 必须在异步上下文中创建。
-        """
+    async def startup(self) -> httpx.AsyncClient:
         if self._client is None:
             self._client = httpx.AsyncClient(
-                timeout=httpx.Timeout(60.0),          # 嵌入超时60秒
+                timeout=httpx.Timeout(60.0),
                 limits=httpx.Limits(
                     max_connections=self._pool_size,
-                    max_keepalive_connections=self._pool_size // 2,
-                ),
+                    max_keepalive_connections=self._pool_size // 2
+                )
             )
+        logger.info("嵌入服务连接成功！")
+
+        if self._dimension is None:
+            text_embed = await self.embed_texts(["warm up"])
+            self._dimension = len(text_embed[0])
+            logger.info(f"检测到嵌入向量维度: {self._dimension}")
+
         return self._client
 
     async def embed_texts(self, texts: List[str]) -> List[List[float]]:
@@ -105,7 +108,9 @@ class EmbeddingService:
         实际执行嵌入请求的核心方法。
         包含重试逻辑和错误处理。
         """
-        client = await self._get_client()
+        if self._client is None:
+            raise RuntimeError("Embeddings Service未初始化，请先调用startup方法初始化")
+        client = self._client
         max_retries = 3
 
         for attempt in range(max_retries):
@@ -127,11 +132,6 @@ class EmbeddingService:
                     raise ValueError(
                         f"嵌入向量数量 ({len(embeddings)}) 与输入文本数量 ({len(texts)}) 不匹配"
                     )
-
-                # 缓存向量维度
-                if embeddings and self._dimension is None:
-                    self._dimension = len(embeddings[0])
-                    logger.info(f"检测到嵌入向量维度: {self._dimension}")
 
                 return embeddings
 
