@@ -69,20 +69,20 @@ class VectorStoreService:
         self._client: MilvusClient | None = None
 
         # 并发控制: 限制同时进行的Milvus操作数
-        self._semaphore = asyncio.Semaphore(settings.MILVUS_MAX_CONCURRENCY)
+        self._semaphore = asyncio.BoundedSemaphore(settings.MILVUS_MAX_CONCURRENCY)
 
         # 向量维度 (在 ensure_collection 时确定)
         self._dimension: int | None = None
 
-    async def startup(self) -> MilvusClient:
+    async def startup(self):
         if self._client is None:
             logger.info(f"正在连接 Milvus: {settings.milvus_uri}")
             self._client = MilvusClient(
                 uri=settings.milvus_uri,
                 token=settings.MILVUS_TOKEN
             )
-            logger.info("Milvus 连接成功")
-        return self._client
+            logger.info("Milvus初始化成功")
+        logger.info("Milvus已连接")
 
     def _get_client(self) -> MilvusClient:
         if self._client is None:

@@ -48,7 +48,7 @@ class EmbeddingService:
         # 嵌入向量维度缓存 (首次调用时自动探测)
         self._dimension: int | None = dimension
 
-    async def startup(self) -> httpx.AsyncClient:
+    async def startup(self):
         if self._client is None:
             self._client = httpx.AsyncClient(
                 timeout=httpx.Timeout(60.0),
@@ -57,14 +57,13 @@ class EmbeddingService:
                     max_keepalive_connections=self._pool_size // 2
                 )
             )
-        logger.info("嵌入服务连接成功！")
+            logger.info("嵌入服务连接成功！")
 
+        logger.info("嵌入服务已连接")
+        text_embed = await self.embed_texts(["warm up"])
         if self._dimension is None:
-            text_embed = await self.embed_texts(["warm up"])
             self._dimension = len(text_embed[0])
             logger.info(f"检测到嵌入向量维度: {self._dimension}")
-
-        return self._client
 
     async def embed_texts(self, texts: List[str]) -> List[List[float]]:
         """

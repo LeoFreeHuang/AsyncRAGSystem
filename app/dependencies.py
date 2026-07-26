@@ -56,8 +56,12 @@ async def init_services(embedding_dimension: int | None = None):
 
     # 创建基础服务
     _embedding_service = EmbeddingService()
+    await _embedding_service.startup()
+
     _llm_service = LLMService()
+
     _vector_store = VectorStoreService()
+    await _vector_store.startup()
 
     # 初始化 Redis 缓存 (连接失败自动降级, 不影响主流程)
     _cache_service = CacheService()
