@@ -54,11 +54,12 @@ async def init_services(embedding_dimension: int | None = None):
 
     logger.info("正在初始化服务...")
 
-    # 创建基础服务
+    # 创建基础服务, 立即创建服务，遵循Fail-Fast设计原则
     _embedding_service = EmbeddingService()
     await _embedding_service.startup()
 
     _llm_service = LLMService()
+    await _llm_service.startup()
 
     _vector_store = VectorStoreService()
     await _vector_store.startup()

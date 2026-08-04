@@ -25,6 +25,7 @@ AsyncRAGSystem - RAG检索服务 (Retrieval Service)
 import logging
 import time
 from typing import AsyncGenerator, List, Optional
+import asyncio
 
 from app.config import settings
 from app.services.embedding import EmbeddingService
@@ -58,6 +59,71 @@ class RetrievalService:
         self._llm = llm_service
         self._vector_store = vector_store
         self._cache = cache_service
+
+    async def _get_cached_or_none(self, question: str) -> Optional[dict]:
+        """缓存检查，返回缓存数据或 None"""
+        if self._cache:
+            return await self._cache.get(question)
+        return None
+
+    async def _set_cache(self, question: str, response: dict) -> None:
+        """写入缓存（如果 cache 存在）"""
+        if self._cache:
+            await self._cache.set(question, response)
+
+    async def _retrieve_and_assemble(
+        self, question: str, top_k: int
+    ) -> tuple[str, List[SourceDocument], str, float, float]:
+        """
+        执行嵌入 + 混合检索 + 上下文组装。
+        返回: (context, sources, search_method, embed_time_ms, search_time_ms)
+        """
+
+        # ================================================
+        # Step 1: 嵌入查询问题 (生成Dense向量)
+        # ================================================
+        embed_start = time.monotonic()
+        query_vector = await self._embedding.embed_query(question)
+        embed_time = (time.monotonic() - embed_start) * 1000
+
+        # ================================================
+        # Step 2: 混合检索 (BM25 + 语义向量)
+        # 使用 Milvus 内置 hybrid_search + RRF 融合
+        # ================================================
+        search_start = time.monotonic()
+        try:
+            search_results = await self._vector_store.hybrid_search(
+                query_text=question,
+                query_vector=query_vector,
+                top_k=top_k,
+                merge_strategy="rrf",
+            )
+            search_method = "hybrid(RRF)"
+        except Exception as e:
+            logger.warning(f"混合检索失败, 降级为纯语义检索: {e}")
+            search_results = await self._vector_store.dense_search(
+                query_vector=query_vector, top_k=top_k
+            )
+            search_method = "dense(fallback)"
+
+        search_time = (time.monotonic() - search_start) * 1000
+        logger.debug(f"{search_method}检索耗时: {search_time:.1f}ms, 结果数: {len(search_results)}")
+
+        # 构建源文档列表（转为 Pydantic 模型）
+        sources = [
+            SourceDocument(
+                chunk_id=r.get("chunk_id", ""),
+                text=r.get("text", ""),
+                score=r.get("score", 0.0),
+            )
+            for r in search_results
+        ]
+
+        # ================================================
+        # Step 3: 构建上下文 (拼接检索到的文档片段)
+        # ================================================
+        context = self._assemble_context(search_results)
+        return context, sources, search_method, embed_time, search_time
 
     async def query(
         self,
@@ -93,7 +159,7 @@ class RetrievalService:
             if cached is not None:
                 total_time = (time.monotonic() - start_time) * 1000
                 logger.info(
-                    f"🎯 缓存命中! 总耗时={total_time:.0f}ms (跳过整个RAG流水线)"
+                    f"🎯 缓存命中! 非流式返回(跳过整个RAG流水线)"
                 )
                 cached["processing_time_ms"] = round(total_time, 1)
                 cached["cached"] = True
@@ -101,45 +167,10 @@ class RetrievalService:
 
         k = top_k or settings.TOP_K
 
-        # ================================================
-        # Step 1: 嵌入查询问题 (生成Dense向量)
-        # ================================================
-        embed_start = time.monotonic()
-        query_vector = await self._embedding.embed_query(question)
-        embed_time = (time.monotonic() - embed_start) * 1000
-        logger.debug(f"查询嵌入耗时: {embed_time:.1f}ms")
-
-        # ================================================
-        # Step 2: 混合检索 (BM25 + 语义向量)
-        # 使用 Milvus 内置 hybrid_search + RRF 融合
-        # ================================================
-        search_start = time.monotonic()
-        try:
-            # 优先使用服务端混合检索 (一次请求完成)
-            search_results = await self._vector_store.hybrid_search(
-                query_text=question,
-                query_vector=query_vector,
-                top_k=k,
-                merge_strategy="rrf",
-            )
-            search_method = "hybrid(RRF)"
-        except Exception as e:
-            # 降级: 如果混合检索不可用, 回退到纯语义检索
-            logger.warning(f"混合检索失败, 降级为纯语义检索: {e}")
-            search_results = await self._vector_store.dense_search(
-                query_vector=query_vector, top_k=k
-            )
-            search_method = "dense(fallback)"
-
-        search_time = (time.monotonic() - search_start) * 1000
-        logger.debug(
-            f"{search_method}检索耗时: {search_time:.1f}ms, 结果数: {len(search_results)}"
+        # ---- 检索与上下文 ----
+        context, sources, search_method, embed_time, search_time = (
+            await self._retrieve_and_assemble(question, k)
         )
-
-        # ================================================
-        # Step 3: 构建上下文 (拼接检索到的文档片段)
-        # ================================================
-        context = self._assemble_context(search_results)
 
         # ================================================
         # Step 4: LLM生成回答
@@ -152,16 +183,6 @@ class RetrievalService:
         )
         gen_time = (time.monotonic() - gen_start) * 1000
         logger.debug(f"LLM生成耗时: {gen_time:.1f}ms")
-
-        # 构建源文档列表
-        sources = [
-            SourceDocument(
-                chunk_id=r.get("chunk_id", ""),
-                text=r.get("text", ""),
-                score=r.get("score", 0.0),
-            )
-            for r in search_results
-        ]
 
         total_time = (time.monotonic() - start_time) * 1000
         logger.info(
@@ -181,9 +202,7 @@ class RetrievalService:
         # ================================================
         # Step 5: 写入缓存
         # ================================================
-        if self._cache:
-            await self._cache.set(question, response)
-
+        await self._set_cache(question, response)
         return response
 
     async def query_stream(
@@ -207,33 +226,60 @@ class RetrievalService:
         Yields:
             LLM生成的文本token。
         """
+
+        start_time = time.monotonic()
+
+        if self._cache:
+            cached = await self._cache.get(question)
+            if cached is not None:
+                logger.info("🎯 缓存命中! 模拟流式返回(跳过整个RAG流水线)")
+                answer = cached.get("answer", "")
+                if not isinstance(answer, str):
+                    answer = str(answer)  # 防御性转换
+                # 按字数分组，添加延迟
+                chunk_size = 2  # 可调整
+                for i in range(0, len(answer), chunk_size):
+                    yield answer[i:i+chunk_size]
+                    await asyncio.sleep(0.025)  # 25ms，可调
+                return
+
         k = top_k or settings.TOP_K
 
-        # Step 1-2: 嵌入 + 混合检索
-        query_vector = await self._embedding.embed_query(question)
-
-        try:
-            search_results = await self._vector_store.hybrid_search(
-                query_text=question,
-                query_vector=query_vector,
-                top_k=k,
-                merge_strategy="rrf",
-            )
-        except Exception:
-            search_results = await self._vector_store.dense_search(
-                query_vector=query_vector, top_k=k
-            )
-
-        # Step 3: 构建上下文
-        context = self._assemble_context(search_results)
-
+        # ---- 检索与上下文 ----
+        context, sources, search_method, embed_time, search_time = (
+            await self._retrieve_and_assemble(question, k)
+        )
+       
         # Step 4: 流式生成
+        tokens = []
+        gen_start = time.monotonic()
         async for token in self._llm.generate_stream(
             question=question,
             context=context,
             temperature=temperature,
         ):
+            tokens.append(token)
             yield token
+
+        gen_time = (time.monotonic() - gen_start) * 1000
+        logger.debug(f"LLM生成耗时: {gen_time:.1f}ms")
+
+        total_time = (time.monotonic() - start_time) * 1000
+        logger.info(
+            f"RAG查询完成: 总耗时={total_time:.0f}ms "
+            f"(嵌入={embed_time:.0f}ms, {search_method}={search_time:.0f}ms, 生成={gen_time:.0f}ms)"
+        )
+
+        response = {
+            "answer": "".join(tokens),
+            "sources": sources,
+            "processing_time_ms": round(total_time, 1),
+            "model": settings.LLM_MODEL,
+            "cached": False,
+            "search_method": search_method,
+        }
+
+        await self._set_cache(question, response)
 
     # qwen3.5 上下文窗口约 32768 tokens, 保守估计每token≈2字符, 预留50%给prompt模板+回答
     _MAX_CONTEXT_CHARS = 30000  # 约15000 tokens的安全上限

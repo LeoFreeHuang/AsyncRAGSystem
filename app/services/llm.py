@@ -69,18 +69,22 @@ class LLMService:
 
         # LLM并发控制: Ollama在单GPU上实际只能串行推理
         # 设置上限避免请求堆积超时
-        self._semaphore = asyncio.Semaphore(settings.OLLAMA_LLM_MAX_CONCURRENT)
+        self._semaphore = asyncio.BoundedSemaphore(settings.OLLAMA_LLM_MAX_CONCURRENT)
 
-    async def _get_client(self) -> httpx.AsyncClient:
-        """延迟初始化HTTP客户端"""
+    async def startup(self) -> httpx.AsyncClient:
         if self._client is None:
             self._client = httpx.AsyncClient(
                 timeout=httpx.Timeout(settings.LLM_TIMEOUT),
                 limits=httpx.Limits(
                     max_connections=self._pool_size,
-                    max_keepalive_connections=self._pool_size // 2,
-                ),
+                    max_keepalive_connections=self._pool_size // 2
+                )
             )
+        return self._client
+
+    def _get_client(self) -> httpx.AsyncClient:
+        if self._client is None:
+            raise RuntimeError("LLM 连接未初始化，请调用startup方法初始化")
         return self._client
 
     def _build_prompt(self, question: str, context: str) -> str:
@@ -165,7 +169,7 @@ class LLMService:
         """
         实际执行非流式生成请求。
         """
-        client = await self._get_client()
+        client = self._get_client()
         start_time = time.monotonic()
 
         try:
@@ -205,7 +209,7 @@ class LLMService:
         实际执行流式生成请求。
         Ollama 流式模式下每行返回一个JSON，包含 "response" 字段。
         """
-        client = await self._get_client()
+        client = self._get_client()
         start_time = time.monotonic()
         total_tokens = 0
 

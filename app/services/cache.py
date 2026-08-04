@@ -137,6 +137,7 @@ class CacheService:
 
         # L1: 精确关键字缓存
         result = await self._get_exact(question)
+
         if result is not None:
             self._hits_exact += 1
             logger.debug(f"🎯 L1精确缓存命中: {question[:50]}...")
@@ -166,6 +167,8 @@ class CacheService:
     async def _redis_get_json(self, key: str) -> Optional[Dict[str, Any]]:
         """从 Redis 读取 JSON 并反序列化"""
         try:
+            if not self._redis:
+                return None
             data = await self._redis.get(key)
             return json.loads(data) if data else None
         except (json.JSONDecodeError, Exception) as e:
@@ -207,6 +210,8 @@ class CacheService:
     async def _redis_set_json(self, key: str, value: Dict[str, Any], ttl: int):
         """将 dict 序列化为 JSON 写入 Redis, 并设置过期时间"""
         try:
+            if not self._redis:
+                return
             # 对 SourceDocument 等 Pydantic 对象做序列化处理
             serialized = self._serialize(value)
             await self._redis.setex(key, ttl, json.dumps(serialized, ensure_ascii=False))
@@ -223,7 +228,7 @@ class CacheService:
             question: 若指定, 仅清除与该问题相关的缓存;
                       若为 None, 清除所有 RAG 缓存 (flush by prefix)。
         """
-        if not self.enabled:
+        if not self.enabled or not self._redis:
             return
 
         if question:
@@ -242,6 +247,9 @@ class CacheService:
 
     async def _flush_by_prefix(self, pattern: str):
         """按前缀模式删除所有匹配的key (使用SCAN, 避免KEYS阻塞)"""
+        if not self._redis:
+            return
+
         cursor = 0
         while True:
             cursor, keys = await self._redis.scan(
