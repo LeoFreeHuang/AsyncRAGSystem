@@ -15,18 +15,12 @@ from datetime import datetime
 class DocumentInput(BaseModel):
     """
     文档摄入请求体。
-    支持直接传入文本或文本列表。
+    支持直接传入文件路径或文件夹路径。
     """
-    texts: List[str] = Field(
-        ..., min_length=1, max_length=100,
-        description="待摄入的文本列表，每项为一个独立文档",
-        examples=[["这是一段文档内容。", "这是另一段文档内容。"]]
+    source_path: str = Field(
+        ..., min_length=1, max_length=256,
+        description="待摄入的文件路径或文件夹路径",
     )
-    metadata: Optional[Dict[str, Any]] = Field(
-        default=None,
-        description="附加到所有文档的公共元数据 (如来源、作者等)"
-    )
-
 
 class IngestResponse(BaseModel):
     """文档摄入响应"""
@@ -34,7 +28,6 @@ class IngestResponse(BaseModel):
     document_count: int = Field(..., description="摄入的文档数量")
     chunk_count: int = Field(..., description="切分后的文本块总数")
     message: str = Field(..., description="操作结果描述")
-
 
 # ==================== RAG 问答相关 ====================
 
@@ -115,9 +108,6 @@ class CollectionStats(BaseModel):
 
 class DeleteRequest(BaseModel):
     """文档删除请求"""
-    chunk_ids: Optional[List[str]] = Field(
-        default=None, description="要删除的文本块ID列表"
-    )
     filter_expr: Optional[str] = Field(
         default=None, description="Milvus过滤表达式 (如 source == 'web')"
     )

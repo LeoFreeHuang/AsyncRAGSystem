@@ -249,6 +249,8 @@ class RetrievalService:
         context, sources, search_method, embed_time, search_time = (
             await self._retrieve_and_assemble(question, k)
         )
+
+        logger.info(f"$$$$$$$$$$$$$Context: {context}")
        
         # Step 4: 流式生成
         tokens = []
@@ -278,6 +280,7 @@ class RetrievalService:
             "cached": False,
             "search_method": search_method,
         }
+        
 
         await self._set_cache(question, response)
 
@@ -305,7 +308,7 @@ class RetrievalService:
         # 过滤低相关度结果
         filtered = [
             r for r in search_results
-            if r.get("score", 0) >= settings.SIMILARITY_THRESHOLD
+            if r.get("score", 0) <= settings.SIMILARITY_THRESHOLD
         ]
 
         # 去重 (基于文本内容的简单去重)

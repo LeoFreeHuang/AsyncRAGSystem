@@ -153,7 +153,7 @@ async def get_cache_stats(
 
 @router.post("/ingest", response_model=IngestResponse, status_code=201)
 async def ingest_documents(
-    doc_input: DocumentInput,
+    source: DocumentInput,
     document_service: DocumentService = Depends(get_document_service),
 ):
     """
@@ -175,8 +175,7 @@ async def ingest_documents(
     """
     try:
         result = await document_service.ingest_texts(
-            texts=doc_input.texts,
-            metadata=doc_input.metadata,
+            source_path=source.source_path,
         )
 
         return IngestResponse(
@@ -185,7 +184,7 @@ async def ingest_documents(
             chunk_count=result["chunk_count"],
             message=(
                 f"成功摄入 {result['document_count']} 篇文档, "
-                f"生成 {result['chunk_count']} 个文本块"
+                f"生成 {result['insert_count']} 个文本块"
             ),
         )
 
@@ -326,22 +325,16 @@ async def delete_documents(
     Returns:
         DeleteResponse: 删除操作结果。
     """
-    if not delete_req.chunk_ids and not delete_req.filter_expr:
+    if not delete_req.filter_expr:
         raise HTTPException(
             status_code=400,
-            detail="请提供 chunk_ids 或 filter_expr 参数",
+            detail="请提供filter_expr 参数",
         )
 
     try:
-        if delete_req.chunk_ids:
-            deleted = await document_service.delete_chunks(delete_req.chunk_ids)
-        else:
-            # 按过滤表达式删除 (未来扩展)
-            raise HTTPException(
-                status_code=501,
-                detail="按filter_expr删除功能待实现",
-            )
-
+        if delete_req.filter_expr:
+            deleted = await document_service.delete_chunks(delete_req.filter_expr)
+        
         return DeleteResponse(
             success=True,
             deleted_count=deleted,

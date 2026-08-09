@@ -56,10 +56,13 @@ class VectorStoreService:
     """
 
     # Milvus Collection Schema 字段名常量
-    FIELD_ID = "id"                  # 主键 (VARCHAR, UUID)
+    FIELD_ID = "id"                  # 主键 (VARCHAR)
+    FIELD_CHUNK_INDEX = "chunk_index" #记录chunk的次序
     FIELD_TEXT = "text"              # 原始文本内容 (VARCHAR, 启用分词器用于BM25)
     FIELD_DENSE = "dense_vector"     # 语义向量 (FLOAT_VECTOR, 来自 Ollama 嵌入)
     FIELD_SPARSE = "sparse_vector"   # BM25稀疏向量 (SPARSE_FLOAT_VECTOR, Milvus内置BM25生成)
+    FIELD_FILE_NAME = "file_name"    #文件名称
+    FIELD_DOC_ID = "doc_id"          #文件标识
 
     # BM25 函数名 (Milvus 内部使用)
     BM25_FUNCTION_NAME = "bm25_func"
@@ -153,7 +156,12 @@ class VectorStoreService:
             field_name=self.FIELD_ID,
             datatype=DataType.VARCHAR,
             is_primary=True,
-            max_length=64,
+            max_length=256,
+        )
+
+        schema.add_field(
+            field_name=self.FIELD_CHUNK_INDEX,
+            datatype=DataType.INT64
         )
 
         # --- 文本字段 (启用分词器, 供BM25使用) ---
@@ -180,6 +188,18 @@ class VectorStoreService:
         schema.add_field(
             field_name=self.FIELD_SPARSE,
             datatype=DataType.SPARSE_FLOAT_VECTOR,
+        )
+
+        schema.add_field(
+            field_name=self.FIELD_DOC_ID,
+            datatype=DataType.VARCHAR,
+            max_length=128,
+        )
+
+        schema.add_field(
+            field_name=self.FIELD_FILE_NAME,
+            datatype=DataType.VARCHAR,
+            max_length=128
         )
 
         # Step3: 添加 BM25 函数 (文本 → 稀疏向量)
@@ -215,6 +235,18 @@ class VectorStoreService:
             metric_type="BM25",
         )
 
+        #为主键字段建立索引，用于后续更新数据时快速过滤
+        index_params.add_index(
+            field_name=self.FIELD_ID,
+            index_type="Trie"
+        )
+
+        #后续支持文档标识过滤
+        index_params.add_index(
+            field_name=self.FIELD_DOC_ID,
+            index_type="Trie"
+        )
+
         # Step5: 创建 Collection
         await self._run_sync(
             client.create_collection,
@@ -237,12 +269,16 @@ class VectorStoreService:
 
     # ==================== 数据操作 ====================
 
-    async def insert(
+    async def upsert(
         self,
         vectors: List[List[float]],
         texts: List[str],
+        doc_ids: List[str],
+        file_names: List[str],
+        chunk_index: List[int],
+        batch_id: int,
         metadatas: Optional[List[Dict[str, Any]]] = None,
-    ) -> List[str]:
+    ) -> int:
         """
         批量插入向量和文本到 Milvus。
 
@@ -263,17 +299,20 @@ class VectorStoreService:
         if metadatas and len(metadatas) != n:
             raise ValueError(f"vectors数量({n})与metadatas数量({len(metadatas)})不匹配")
 
-        # 构建插入数据: MilvusClient.insert() 接受 List[Dict] 格式
+        # 构建插入数据: MilvusClient.upsert() 接受 List[Dict] 格式
         chunk_ids = []
         data_rows = []
         for i in range(n):
-            chunk_id = str(uuid.uuid4())
+            chunk_id = f"{doc_ids[i]}_{batch_id}_chunk_{i}" 
             chunk_ids.append(chunk_id)
 
             row = {
                 self.FIELD_ID: chunk_id,
+                self.FIELD_CHUNK_INDEX: chunk_index[i],
                 self.FIELD_TEXT: texts[i],
                 self.FIELD_DENSE: vectors[i],   # 仅需提供语义向量, sparse_vector由BM25函数自动生成
+                self.FIELD_DOC_ID: doc_ids[i],
+                self.FIELD_FILE_NAME: file_names[i],
             }
 
             # 将metadata作为动态字段存入
@@ -286,14 +325,13 @@ class VectorStoreService:
         async with self._semaphore:
             client = self._get_client()
             result = await self._run_sync(
-                client.insert,
+                client.upsert,
                 collection_name=settings.MILVUS_COLLECTION,
                 data=data_rows,
             )
-
-        insert_count = result.get("insert_count", 0)
+        insert_count = result.get("upsert_count", 0)
         logger.info(f"成功插入 {insert_count} 条数据到 Milvus")
-        return chunk_ids
+        return insert_count
 
     # ==================== 检索操作 ====================
 
@@ -517,41 +555,37 @@ class VectorStoreService:
         # 过滤低于阈值的低相关结果
         formatted = [
             r for r in formatted
-            if r["score"] >= settings.SIMILARITY_THRESHOLD
+            if r["score"] <= settings.SIMILARITY_THRESHOLD
         ]
 
         return formatted
 
     # ==================== 删除操作 ====================
 
-    async def delete_by_ids(self, chunk_ids: List[str]) -> int:
+    async def delete_by_filter(self, filter_expr: str) -> int:
         """
         根据ID列表删除文档块。
 
         Args:
-            chunk_ids: 要删除的chunk ID列表。
+            filter_expr: 根据过滤条件删除相应切片。
 
         Returns:
             实际删除的数量。
         """
-        if not chunk_ids:
+        if not filter_expr:
+            logger.warning("过滤条件为空，跳过删除。如需删除切片，请提供过滤条件")
             return 0
 
-        # 构建过滤表达式: id in ["id1", "id2", ...]
-        ids_str = ", ".join(f'"{cid}"' for cid in chunk_ids)
-        filter_expr = f'{self.FIELD_ID} in [{ids_str}]'
-
         async with self._semaphore:
+            logger.info(f"(((((((()))))))): {filter_expr}")
             client = self._get_client()
             result = await self._run_sync(
                 client.delete,
                 collection_name=settings.MILVUS_COLLECTION,
                 filter=filter_expr,
             )
-
-        delete_count = result.get("delete_count", 0) if isinstance(result, dict) else 0
-        logger.info(f"从 Milvus 删除了 {delete_count} 条数据")
-        return delete_count
+        
+        return result.get("delete_count", 0) if isinstance(result, dict) else 0
 
     async def count(self) -> int:
         """

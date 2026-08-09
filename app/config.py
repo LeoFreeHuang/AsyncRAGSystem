@@ -76,7 +76,7 @@ class Settings(BaseSettings):
     )
     # 是否启用缓存
     CACHE_ENABLED: bool = Field(
-        default=True, description="是否启用Redis缓存"
+        default=False, description="是否启用Redis缓存"
     )
 
     # ==================== Nginx 反向代理配置 ====================
@@ -90,22 +90,27 @@ class Settings(BaseSettings):
     )
 
     # ==================== 文档分块配置 ====================
-    CHUNK_SIZE: int = Field(default=512, description="文本分块大小 (字符数)")
+    CHUNK_SIZE: int = Field(default=400, description="文本分块大小 (字符数)")
     CHUNK_OVERLAP: int = Field(
-        default=128, description="相邻分块重叠字符数 (保持上下文连贯)"
+        default=100, description="相邻分块重叠字符数 (保持上下文连贯)"
     )
+    SUPPORTED_EXTENTIONS: list[str] = Field(default_factory=lambda: [
+        ".pdf", ".html", ".htm", ".xlsx", ".xls", ".docx", ".doc", ".txt"
+    ], description="支持上传的文件类型")
+    MAX_FILE_SIZE_MB: int = Field(default=50, description="支持最大上传的文件大小（MB）")
+    CLEAN_ENABLED: bool = Field(default=True, description="是否需要清洗文件")
 
     # ==================== 检索配置 ====================
     TOP_K: int = Field(default=5, description="检索返回的Top-K相关文档数")
     SIMILARITY_THRESHOLD: float = Field(
-        default=0.3, description="相似度阈值, 低于此值的结果将被过滤"
+        default=0.3, description="相似度阈值, 高于此值的结果将被过滤。数值越小越相似"
     )
 
     # ==================== LLM 生成配置 ====================
     LLM_TEMPERATURE: float = Field(
         default=0.1, ge=0.0, le=2.0, description="LLM生成温度 (越低越确定性)"
     )
-    LLM_MAX_TOKENS: int = Field(default=2048, description="LLM最大生成token数")
+    LLM_MAX_TOKENS: int = Field(default=4096, description="LLM最大生成token数")
     LLM_TIMEOUT: int = Field(default=120, description="LLM请求超时时间 (秒)")
 
     # ==================== Ollama 并发控制 ====================

@@ -121,6 +121,37 @@ curl -X POST http://localhost:8000/api/v1/query \
   -H "Content-Type: application/json" \
   -d '{"question": "什么是RAG?"}'
 
+  ##1、流式输出验证
+
+  ### 创建请求文件（避免转义问题）
+  $tmpFile = [System.IO.Path]::GetTempFileName()
+  @'
+  {"question": "什么是rAG  ?", "top_k": 3, "temperature": 0.7}
+  '@ | Out-File -FilePath $tmpFile -Encoding utf8
+
+  # 静默模式(-s) + 禁用缓冲(-N)，直接显示原始的 SSE 数据流
+  curl.exe -s -N -X POST http://localhost:8000/api/v1/query/stream `
+  -H "Content-Type: application/json" `
+  -d "@$tmpFile"
+
+  Remove-Item $tmpFile
+
+
+  ##2、非流式输出验证
+
+  ### 创建请求文件（避免转义问题）
+  $tmpFile = [System.IO.Path]::GetTempFileName()
+  @'
+  {"question": "什么是Agent ?"}
+  '@ | Out-File -FilePath $tmpFile -Encoding utf8
+
+  # 静默模式(-s) + 禁用缓冲(-N)，直接显示原始的 SSE 数据流
+  curl.exe -s -N -X POST http://localhost:8000/api/v1/query `
+  -H "Content-Type: application/json" `
+  -d "@$tmpFile"
+
+Remove-Item $tmpFile
+
 # 缓存统计
 curl http://localhost:8000/api/v1/cache/stats
 

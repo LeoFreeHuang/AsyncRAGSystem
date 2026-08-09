@@ -221,22 +221,23 @@ class LLMService:
                     "model": settings.LLM_MODEL,
                     "prompt": prompt,
                     "stream": True,
+                    "think": False,
                     "options": {
                         "temperature": temperature,
                         "num_predict": max_tokens,
-                    },
+                    },    
                 },
             ) as response:
                 response.raise_for_status()
-
+                
                 async for line in response.aiter_lines():
                     if not line.strip():
                         continue
                     try:
-                        chunk = json.loads(line)
+                        chunk = json.loads(line) 
                         token = chunk.get("response", "")
                         if token:
-                            total_tokens += 1
+                            total_tokens += 1   
                             yield token
                         # 检查是否完成
                         if chunk.get("done", False):
