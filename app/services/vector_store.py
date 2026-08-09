@@ -276,7 +276,6 @@ class VectorStoreService:
         doc_ids: List[str],
         file_names: List[str],
         chunk_index: List[int],
-        batch_id: int,
         metadatas: Optional[List[Dict[str, Any]]] = None,
     ) -> int:
         """
@@ -303,7 +302,7 @@ class VectorStoreService:
         chunk_ids = []
         data_rows = []
         for i in range(n):
-            chunk_id = f"{doc_ids[i]}_{batch_id}_chunk_{i}" 
+            chunk_id = f"{doc_ids[i]}_chunk_{chunk_index[i]}" 
             chunk_ids.append(chunk_id)
 
             row = {
@@ -577,7 +576,6 @@ class VectorStoreService:
             return 0
 
         async with self._semaphore:
-            logger.info(f"(((((((()))))))): {filter_expr}")
             client = self._get_client()
             result = await self._run_sync(
                 client.delete,

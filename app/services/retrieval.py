@@ -172,6 +172,8 @@ class RetrievalService:
             await self._retrieve_and_assemble(question, k)
         )
 
+        logger.info(f"【query】: 【检索到的上下文信息】: \n{context}")
+
         # ================================================
         # Step 4: LLM生成回答
         # ================================================
@@ -250,7 +252,7 @@ class RetrievalService:
             await self._retrieve_and_assemble(question, k)
         )
 
-        logger.info(f"$$$$$$$$$$$$$Context: {context}")
+        logger.info(f"【query_stream】: 【检索到的上下文信息】: \n{context}")
        
         # Step 4: 流式生成
         tokens = []

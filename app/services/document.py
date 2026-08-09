@@ -112,7 +112,6 @@ class DocumentService:
                 file_names=batch_file_names,
                 metadatas=batch_metadatas,
                 chunk_index=batch_chunk_index,
-                batch_id = i,
             )
             all_insert_count += insert_count
 
