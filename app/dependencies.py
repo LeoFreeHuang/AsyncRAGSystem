@@ -19,6 +19,7 @@ from app.services.vector_store import VectorStoreService
 from app.services.document import DocumentService
 from app.services.retrieval import RetrievalService
 from app.services.cache import CacheService
+from app.services.reranker import RerankService
 
 logger = logging.getLogger(__name__)
 
@@ -34,6 +35,7 @@ _vector_store: VectorStoreService | None = None
 _document_service: DocumentService | None = None
 _retrieval_service: RetrievalService | None = None
 _cache_service: CacheService | None = None
+_rerank_service: RerankService | None = None
 
 
 # ============================================================
@@ -50,13 +52,15 @@ async def init_services(embedding_dimension: int | None = None):
         embedding_dimension: 嵌入向量维度。若为None则在首次嵌入时自动探测。
     """
     global _embedding_service, _llm_service, _vector_store
-    global _document_service, _retrieval_service, _cache_service
+    global _document_service, _retrieval_service, _cache_service, _rerank_service
 
     logger.info("正在初始化服务...")
 
     # 创建基础服务, 立即创建服务，遵循Fail-Fast设计原则
     _embedding_service = EmbeddingService()
     await _embedding_service.startup()
+
+    _rerank_service = RerankService()
 
     _llm_service = LLMService()
     await _llm_service.startup()
@@ -88,6 +92,7 @@ async def init_services(embedding_dimension: int | None = None):
         llm_service=_llm_service,
         vector_store=_vector_store,
         cache_service=_cache_service,     # ← Redis缓存注入
+        rerank_service=_rerank_service
     )
 
     logger.info("所有服务初始化完成")
@@ -96,7 +101,7 @@ async def init_services(embedding_dimension: int | None = None):
 async def shutdown_services():
     """关闭所有服务，释放连接资源。在应用关闭时调用。"""
     global _embedding_service, _llm_service, _vector_store
-    global _document_service, _retrieval_service, _cache_service
+    global _document_service, _retrieval_service, _cache_service, _rerank_service
 
     logger.info("正在关闭服务...")
 
@@ -117,6 +122,7 @@ async def shutdown_services():
     _document_service = None
     _retrieval_service = None
     _cache_service = None
+    _rerank_service = None
 
     logger.info("所有服务已关闭")
 

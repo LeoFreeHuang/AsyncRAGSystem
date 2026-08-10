@@ -32,6 +32,7 @@ from app.services.embedding import EmbeddingService
 from app.services.llm import LLMService
 from app.services.vector_store import VectorStoreService
 from app.services.cache import CacheService
+from app.services.reranker import RerankService
 from app.api.schemas import SourceDocument
 
 logger = logging.getLogger(__name__)
@@ -54,11 +55,13 @@ class RetrievalService:
         llm_service: LLMService,
         vector_store: VectorStoreService,
         cache_service: Optional[CacheService] = None,
+        rerank_service: Optional[RerankService] = None
     ):
         self._embedding = embedding_service
         self._llm = llm_service
         self._vector_store = vector_store
         self._cache = cache_service
+        self._reranker = rerank_service
 
     async def _get_cached_or_none(self, question: str) -> Optional[dict]:
         """缓存检查，返回缓存数据或 None"""
@@ -108,6 +111,12 @@ class RetrievalService:
 
         search_time = (time.monotonic() - search_start) * 1000
         logger.debug(f"{search_method}检索耗时: {search_time:.1f}ms, 结果数: {len(search_results)}")
+
+        if settings.RERANKER_ENABLED and self._reranker:
+            logger.info(f"^^^^^^^^^^^^^^^^检索结果: {len(search_results)}")
+            logger.info(f"RERANKER_ENABLED={settings.RERANKER_ENABLED}, 开始重排")
+            search_results = await self._reranker.rerank(question, search_results)
+            logger.info(f"^^^^^^^^^^^^^^^^重排结果: {search_results}")
 
         # 构建源文档列表（转为 Pydantic 模型）
         sources = [

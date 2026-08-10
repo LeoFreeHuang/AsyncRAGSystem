@@ -101,10 +101,19 @@ class Settings(BaseSettings):
     CLEAN_ENABLED: bool = Field(default=True, description="是否需要清洗文件")
 
     # ==================== 检索配置 ====================
-    TOP_K: int = Field(default=5, description="检索返回的Top-K相关文档数")
+    MILVUS_TOP_K: int = Field(default=50, description="检索返回的Top-K相关文档数")
     SIMILARITY_THRESHOLD: float = Field(
         default=0.3, description="相似度阈值, 高于此值的结果将被过滤。数值越小越相似"
     )
+    TOP_K: int = Field(default=5, description="检索返回的Top-K相关文档数")
+
+    # ==================== 重排配置 ====================
+    RERANKER_MODEL: str = Field(default="E:\\AI_Models\\BAAI\\bge-reranker-large", description="重排模型路径")
+    RERANKER_BATCH_SIZE: int = Field(default=32, description="重排模型批处理大小")
+    RERANKER_MAX_LENGTH: int = Field(default=4096, description="重排模型处理的文档最大长度")
+    RERANKER_USER_FP16: bool = Field(default=False, description="精度减半，显存紧张时 GPU 上可开启，CPU 推理建议关闭")
+    RERANKER_ENABLED: bool = Field(default=True, description="是否精排")
+    RERANKER_DEVICE: str = Field(default="cpu", description="重排模型运行的设备")
 
     # ==================== LLM 生成配置 ====================
     LLM_TEMPERATURE: float = Field(

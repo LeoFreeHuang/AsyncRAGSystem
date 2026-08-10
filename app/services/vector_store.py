@@ -23,7 +23,6 @@ PyMilvus 3.0.0.0 API 参考:
 
 import asyncio
 import logging
-import uuid
 from typing import Any, Dict, List, Optional
 
 from pymilvus import (
@@ -367,7 +366,7 @@ class VectorStoreService:
         Returns:
             搜索结果列表，每项包含 chunk_id, text, score。
         """
-        k = top_k or settings.TOP_K
+        k = settings.MILVUS_TOP_K
 
         search_params = {
             "metric_type": "COSINE",
@@ -416,7 +415,7 @@ class VectorStoreService:
         Returns:
             搜索结果列表，每项包含 chunk_id, text, score。
         """
-        k = top_k or settings.TOP_K
+        k = settings.MILVUS_TOP_K
 
         search_params = {
             "metric_type": "BM25",
@@ -471,7 +470,7 @@ class VectorStoreService:
         Returns:
             融合排序后的搜索结果列表。
         """
-        k = top_k or settings.TOP_K
+        k = settings.MILVUS_TOP_K
 
         # ---- 构建语义向量搜索请求 ----
         dense_req = AnnSearchRequest(
