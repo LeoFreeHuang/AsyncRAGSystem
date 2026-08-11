@@ -9,8 +9,11 @@ import asyncio
 from typing import List, Union, Tuple, Dict, Any
 from sentence_transformers import CrossEncoder
 import torch
+import logging
 
 from app.config import settings
+
+logger = logging.getLogger(__name__)
 
 class RerankService:
     """

@@ -102,7 +102,7 @@ class LLMService:
         """
         # 如果上下文为空，使用简化提示词
         if not context or not context.strip():
-            return f"请回答以下问题:\n\n{question}"
+            return f"{question}\n\n请根据以上内容回答"
 
         return RAG_SYSTEM_PROMPT.format(context=context, question=question)
 
@@ -171,7 +171,6 @@ class LLMService:
         """
         client = self._get_client()
         start_time = time.monotonic()
-
         try:
             response = await client.post(
                 settings.ollama_generate_url,
@@ -179,6 +178,7 @@ class LLMService:
                     "model": settings.LLM_MODEL,
                     "prompt": prompt,
                     "stream": False,          # 非流式模式
+                    "think": False,
                     "options": {
                         "temperature": temperature,
                         "num_predict": max_tokens,
@@ -187,7 +187,7 @@ class LLMService:
             )
             response.raise_for_status()
             data = response.json()
-
+            
             # Ollama /api/generate 非流式返回 {"response": "..."}
             answer = data.get("response", "")
             elapsed = (time.monotonic() - start_time) * 1000

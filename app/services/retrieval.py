@@ -81,6 +81,17 @@ class RetrievalService:
         执行嵌入 + 混合检索 + 上下文组装。
         返回: (context, sources, search_method, embed_time_ms, search_time_ms)
         """
+        question_for_rerank = question
+        # ================================================
+        # Step 0: 查询重写 
+        # ================================================
+        if settings.QUERY_REWRITE_ENABLED:
+            num_queries = settings.QUERY_NUMBERS
+            question = await self.query_rewrite(question, num_queries)
+
+        if settings.QUERY_HYDE_ENABLED:
+            num_queries = settings.QUERY_NUMBERS
+            question = await self.query_hyde(question, num_queries)
 
         # ================================================
         # Step 1: 嵌入查询问题 (生成Dense向量)
@@ -112,12 +123,17 @@ class RetrievalService:
         search_time = (time.monotonic() - search_start) * 1000
         logger.debug(f"{search_method}检索耗时: {search_time:.1f}ms, 结果数: {len(search_results)}")
 
-        if settings.RERANKER_ENABLED and self._reranker:
-            logger.info(f"^^^^^^^^^^^^^^^^检索结果: {len(search_results)}")
-            logger.info(f"RERANKER_ENABLED={settings.RERANKER_ENABLED}, 开始重排")
-            search_results = await self._reranker.rerank(question, search_results)
-            logger.info(f"^^^^^^^^^^^^^^^^重排结果: {search_results}")
-
+        try:
+            if settings.RERANKER_ENABLED and self._reranker:
+                #进行重排
+                logger.info(f"RERANKER_ENABLED={settings.RERANKER_ENABLED}, 使用Cross-Encoder对检索结果重排...")
+                search_results = await self._reranker.rerank(question_for_rerank, search_results)
+            else:
+                search_results = search_results[:top_k]
+        except Exception as e:
+            logger.error(f"重排服务失败，错误详情: {e}")
+            search_results = search_results[:top_k]
+        
         # 构建源文档列表（转为 Pydantic 模型）
         sources = [
             SourceDocument(
@@ -359,3 +375,74 @@ class RetrievalService:
             total_chars += part_len
 
         return "\n\n".join(context_parts)
+
+    #查询重写
+    async def query_rewrite(self, question: str, num_queries: int = 2) -> str:
+        """
+        查询重写: 让 LLM 对查询进行重写。
+
+        Args:
+            question: 用户原始问题。
+            num_queries: 重写后查询的数量。
+
+        Returns:
+            重写后查询列表。
+        """
+
+        rewrite_prompt = (
+        "你是一个专业的搜索查询优化专家。请根据规则改写查询以提高召回率：\n"
+        "1. 指代消解；2. 同义词扩展；3. 多角度表述；4. 保持原意；5. 专业准确。\n"
+        "只输出改写后的查询，每行一个，不要编号、解释或额外内容。"
+        )
+
+        user_prompt = f"系统角色：{rewrite_prompt}\n\n原始查询: {question}\n\n请生成 {num_queries} 个改写后的查询："
+        rewrite_response = await self._llm.generate(
+            question=user_prompt, 
+            context="",
+            max_tokens=settings.REWRITE_MAX_LENGTH
+        )
+        question = question + "\n" + rewrite_response
+
+        logger.info(f"【query_rewrite】查询重写: \n{question}")
+        return question
+
+    #假设文档嵌入
+    async def query_hyde(self, question: str, num_queries: int = 2) -> str:
+        """
+        假设性文档嵌入 (HyDE): 让 LLM 生成可能包含问题答案的假设文档。
+        这些文档将被嵌入用于检索，弥合问题与真实文档之间的语义鸿沟。
+
+        Args:
+            question: 用户原始问题。
+            num_queries: 生成的假设文档数量。
+
+        Returns:
+            假设文档字符串列表。
+        """
+
+        hyde_prompt = (
+            "你是一个专业的内容生成专家。请根据用户的问题，生成一篇假设的文档段落，"
+            "该段落应包含回答该问题所需的详细信息和事实。文档风格类似于百科全书或教科书，"
+            "内容合理、信息丰富，但不必真实存在。请严格遵循以下规则：\n"
+            "1. 直接针对问题提供可能的答案，涵盖相关概念、原理、数据或案例。\n"
+            "2. 文档应像真实摘录一样自然，不要出现“这是一个假设文档”之类的元说明。\n"
+            "3. 只输出文档内容本身，不添加任何额外解释、编号或前缀。\n"
+            "4. 每个文档为一个独立的段落，不要混入其他内容。"
+        )
+        user_prompt = (
+            f"系统角色：{hyde_prompt}\n\n"
+            f"用户问题: {question}\n\n"
+            f"请生成 {num_queries} 个不同的假设性文档段落，用 '---' 分隔每个文档。"
+        )
+
+        hyde_response = await self._llm.generate(
+            question=user_prompt,
+            context="",
+            max_tokens=settings.HYDE_MAX_LENGTH
+        )
+
+        question = question + "\n" + hyde_response
+        logger.info(f"【query_hyde】假设性文档嵌入: \n{question}")
+
+        return question
+        

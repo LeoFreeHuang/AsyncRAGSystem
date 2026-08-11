@@ -366,7 +366,7 @@ class VectorStoreService:
         Returns:
             搜索结果列表，每项包含 chunk_id, text, score。
         """
-        k = settings.MILVUS_TOP_K
+        k = settings.SEARCH_TOP_K
 
         search_params = {
             "metric_type": "COSINE",
@@ -415,7 +415,7 @@ class VectorStoreService:
         Returns:
             搜索结果列表，每项包含 chunk_id, text, score。
         """
-        k = settings.MILVUS_TOP_K
+        k = settings.SEARCH_TOP_K
 
         search_params = {
             "metric_type": "BM25",
@@ -470,7 +470,7 @@ class VectorStoreService:
         Returns:
             融合排序后的搜索结果列表。
         """
-        k = settings.MILVUS_TOP_K
+        k = settings.SEARCH_TOP_K
 
         # ---- 构建语义向量搜索请求 ----
         dense_req = AnnSearchRequest(
