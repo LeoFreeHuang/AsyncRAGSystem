@@ -24,6 +24,7 @@ PyMilvus 3.0.0.0 API 参考:
 import asyncio
 import logging
 from typing import Any, Dict, List, Optional
+from langfuse import observe
 
 from pymilvus import (
     MilvusClient,
@@ -438,6 +439,7 @@ class VectorStoreService:
 
         return self._format_search_results(results)
 
+    @observe(name="hybrid_search", as_type="retriever")
     async def hybrid_search(
         self,
         query_text: str,

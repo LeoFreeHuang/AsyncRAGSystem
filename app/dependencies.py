@@ -12,6 +12,7 @@ AsyncRAGSystem - 依赖注入模块
 """
 
 import logging
+from langfuse import get_client
 
 from app.services.embedding import EmbeddingService
 from app.services.llm import LLMService
@@ -94,6 +95,8 @@ async def init_services(embedding_dimension: int | None = None):
         cache_service=_cache_service,     # ← Redis缓存注入
         rerank_service=_rerank_service
     )
+
+    langfuse = get_client()
 
     logger.info("所有服务初始化完成")
 

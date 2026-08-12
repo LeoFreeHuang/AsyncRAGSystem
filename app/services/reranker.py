@@ -10,6 +10,7 @@ from typing import List, Union, Tuple, Dict, Any
 from sentence_transformers import CrossEncoder
 import torch
 import logging
+from langfuse import observe
 
 from app.config import settings
 
@@ -40,6 +41,7 @@ class RerankService:
             self.model.half()  # 将底层 transformer 转为半精度
         self.batch_size = batch_size
 
+    @observe(name="reranker")
     async def rerank(
         self,
         query: str,

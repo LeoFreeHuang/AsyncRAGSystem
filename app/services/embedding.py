@@ -14,6 +14,7 @@ AsyncRAGSystem - 嵌入服务 (Embedding Service)
 import asyncio
 import logging
 from typing import List, Optional
+from langfuse import observe
 
 import httpx
 
@@ -89,6 +90,7 @@ class EmbeddingService:
         async with self._semaphore:
             return await self._do_embed(texts)
 
+    @observe(name="embed_query", as_type="embedding")
     async def embed_query(self, text: str) -> List[float]:
         """
         嵌入单条查询文本 (便捷方法)。

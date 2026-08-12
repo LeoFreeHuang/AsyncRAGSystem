@@ -19,6 +19,7 @@ from typing import List
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import StreamingResponse
+from langfuse import observe
 
 from app.api.schemas import (
     DocumentInput,
@@ -50,12 +51,12 @@ logger = logging.getLogger(__name__)
 # 创建路由汇总
 router = APIRouter(prefix="/api/v1", tags=["RAG System"])
 
-
 # ============================================================
 # 系统管理端点
 # ============================================================
 
 @router.get("/health", response_model=HealthResponse)
+@observe(name="health_check")
 async def health_check(
     request: Request,
     embedding_service: EmbeddingService = Depends(get_embedding_service),
@@ -251,6 +252,7 @@ async def rag_query(
 
 
 @router.post("/query/stream")
+@observe(name="rag-query-stream")
 async def rag_query_stream(
     query_input: QueryInput,
     retrieval_service: RetrievalService = Depends(get_retrieval_service),

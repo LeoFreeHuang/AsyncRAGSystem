@@ -26,6 +26,7 @@ import logging
 import time
 from typing import AsyncGenerator, List, Optional
 import asyncio
+from langfuse import observe
 
 from app.config import settings
 from app.services.embedding import EmbeddingService
@@ -377,6 +378,7 @@ class RetrievalService:
         return "\n\n".join(context_parts)
 
     #查询重写
+    @observe(name="rewrite")
     async def query_rewrite(self, question: str, num_queries: int = 2) -> str:
         """
         查询重写: 让 LLM 对查询进行重写。
@@ -407,6 +409,7 @@ class RetrievalService:
         return question
 
     #假设文档嵌入
+    @observe(name="hyde")
     async def query_hyde(self, question: str, num_queries: int = 2) -> str:
         """
         假设性文档嵌入 (HyDE): 让 LLM 生成可能包含问题答案的假设文档。

@@ -17,6 +17,7 @@ import json
 import logging
 import time
 from typing import AsyncGenerator, Optional
+from langfuse import observe
 
 import httpx
 
@@ -134,6 +135,7 @@ class LLMService:
         async with self._semaphore:
             return await self._do_generate(prompt, temp, max_tok)
 
+    @observe(name="generate_stream", as_type="generation")
     async def generate_stream(
         self,
         question: str,
