@@ -223,7 +223,7 @@ class LLMService:
                     "model": settings.LLM_MODEL,
                     "prompt": prompt,
                     "stream": True,
-                    "think": False,
+                    "think": True,
                     "options": {
                         "temperature": temperature,
                         "num_predict": max_tokens,

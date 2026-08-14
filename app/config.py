@@ -126,7 +126,7 @@ class Settings(BaseSettings):
     LLM_TEMPERATURE: float = Field(
         default=0.1, ge=0.0, le=2.0, description="LLM生成温度 (越低越确定性)"
     )
-    LLM_MAX_TOKENS: int = Field(default=4096, description="LLM最大生成token数")
+    LLM_MAX_TOKENS: int = Field(default=8196, description="LLM最大生成token数")
     LLM_TIMEOUT: int = Field(default=120, description="LLM请求超时时间 (秒)")
 
     # ==================== Ollama 并发控制 ====================
