@@ -82,17 +82,29 @@ class RetrievalService:
         执行嵌入 + 混合检索 + 上下文组装。
         返回: (context, sources, search_method, embed_time_ms, search_time_ms)
         """
-        question_for_rerank = question
+        question_orign = question
         # ================================================
         # Step 0: 查询重写 
         # ================================================
         if settings.QUERY_REWRITE_ENABLED:
-            num_queries = settings.QUERY_NUMBERS
-            question = await self.query_rewrite(question, num_queries)
+            try:
+                num_queries = settings.QUERY_NUMBERS
+                question = await self.query_rewrite(question, num_queries)
+                question_rewrite = question
+            except Exception as e:
+                logger.error(f"查询重写服务报错,采用原始查询：{e}")
+                question = question_orign
 
         if settings.QUERY_HYDE_ENABLED:
-            num_queries = settings.QUERY_NUMBERS
-            question = await self.query_hyde(question, num_queries)
+            try:
+                num_queries = settings.QUERY_NUMBERS
+                question = await self.query_hyde(question, num_queries)
+            except Exception as e:
+                logger.error(f"查询假设性文档嵌入服务报错，查询回退：{e}")
+                if settings.QUERY_REWRITE_ENABLED:
+                    question = question_rewrite
+                else:
+                    question = question_orign
 
         # ================================================
         # Step 1: 嵌入查询问题 (生成Dense向量)
@@ -114,6 +126,17 @@ class RetrievalService:
                 merge_strategy="rrf",
             )
             search_method = "hybrid(RRF)"
+
+            try:
+                if settings.RERANKER_ENABLED and self._reranker:
+                    #进行重排
+                    logger.info(f"RERANKER_ENABLED={settings.RERANKER_ENABLED}, 使用Cross-Encoder对检索结果重排...")
+                    search_results = await self._reranker.rerank(question_orign, search_results)
+                else:
+                    search_results = search_results[:top_k]
+            except Exception as e:
+                logger.error(f"重排服务失败，错误详情: {e}")
+                search_results = search_results[:top_k]
         except Exception as e:
             logger.warning(f"混合检索失败, 降级为纯语义检索: {e}")
             search_results = await self._vector_store.dense_search(
@@ -123,17 +146,6 @@ class RetrievalService:
 
         search_time = (time.monotonic() - search_start) * 1000
         logger.debug(f"{search_method}检索耗时: {search_time:.1f}ms, 结果数: {len(search_results)}")
-
-        try:
-            if settings.RERANKER_ENABLED and self._reranker:
-                #进行重排
-                logger.info(f"RERANKER_ENABLED={settings.RERANKER_ENABLED}, 使用Cross-Encoder对检索结果重排...")
-                search_results = await self._reranker.rerank(question_for_rerank, search_results)
-            else:
-                search_results = search_results[:top_k]
-        except Exception as e:
-            logger.error(f"重排服务失败，错误详情: {e}")
-            search_results = search_results[:top_k]
         
         # 构建源文档列表（转为 Pydantic 模型）
         sources = [
@@ -392,9 +404,22 @@ class RetrievalService:
         """
 
         rewrite_prompt = (
-        "你是一个专业的搜索查询优化专家。请根据规则改写查询以提高召回率：\n"
-        "1. 指代消解；2. 同义词扩展；3. 多角度表述；4. 保持原意；5. 专业准确。\n"
-        "只输出改写后的查询，每行一个，不要编号、解释或额外内容。"
+            "你是一个专业的搜索查询优化专家。请根据以下规则改写用户查询，生成 3~4 个用于检索的查询变体。\n\n"
+            "【执行步骤】\n"
+            "第一步：从原始查询中识别并锁定所有核心实体（专有名词），这些实体在后续改写中必须原样保留。\n"
+            "第二步：围绕锁定的核心实体，从不同角度生成 3~4 个语义等价的查询变体。\n"
+            "第三步：逐条自检——每个变体中是否出现了原始查询中没有提及的其他独立事件、地点或人物？"
+            "如果有，立即删除该变体并重新生成。\n\n"
+            "【规则】\n"
+            "1. 实体锁定：原始查询中的专有名词（人名、地名、机构名、事件名、作品名等）必须原样保留，不可替换、不可省略。\n"
+            "2. 允许扩展：可引入原始事件的同义词、下位概念、核心参与者或背景信息（如别称、相关人物），"
+            "但引入的内容必须从属于原始事件本身。\n"
+            "3. 铁律：改写后的查询中，绝对不得出现原始查询中未提及的其他独立事件名称。"
+            "每个变体只能描述原始查询中的那一个事件，不得涉及任何其他事件。\n"
+            "4. 指代消解：如果有代词或模糊指代，结合上下文还原；无上下文则保持原样。\n"
+            "5. 多角度表述：可从正式/口语、全称/简称等角度改写，但每个变体必须指向同一问题。\n\n"
+            "【输出格式】\n"
+            "每行一个改写后的查询，不要编号、不要解释、不要额外内容。\n\n"
         )
 
         user_prompt = f"系统角色：{rewrite_prompt}\n\n原始查询: {question}\n\n请生成 {num_queries} 个改写后的查询："
@@ -435,7 +460,7 @@ class RetrievalService:
         user_prompt = (
             f"系统角色：{hyde_prompt}\n\n"
             f"用户问题: {question}\n\n"
-            f"请生成 {num_queries} 个不同的假设性文档段落，用 '---' 分隔每个文档。"
+            f"请生成 {num_queries} 个不同的假设性文档段落，用编号分隔每个文档。"
         )
 
         hyde_response = await self._llm.generate(

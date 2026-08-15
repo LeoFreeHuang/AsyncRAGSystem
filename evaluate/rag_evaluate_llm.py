@@ -24,13 +24,13 @@ if "langchain_community.chat_models.vertexai" not in sys.modules:
     sys.modules["langchain_community.chat_models.vertexai"] = fake_module
 # ============================================================
 
-from langfuse import get_client
+from langfuse import get_client, observe
 import json
 import pandas as pd
 from pandas import DataFrame
 import asyncio
 
-from ragas.metrics.collections import Faithfulness, AnswerRelevancy, ContextUtilization
+from ragas.metrics.collections import Faithfulness, AnswerRelevancy, ContextUtilization, ContextPrecision
 from ragas.llms import llm_factory
 from ragas.embeddings import OpenAIEmbeddings
 from ragas import experiment
@@ -54,7 +54,7 @@ def fetch_lanfuse_dataset() -> DataFrame:
     data = []
 
     #拉取最近100个traces
-    trace_response = langfuse.api.trace.list(limit=100)
+    trace_response = langfuse.api.trace.list(limit=1, name="rag-query-stream")
     print(f"拉取trace个数：{len(trace_response.data)}")
 
     if trace_response:
@@ -102,40 +102,60 @@ def fetch_lanfuse_dataset() -> DataFrame:
                 "contexts": contexts,
             })
 
-    for d in data:
-        print(d)
-        print("-" * 50)
+            print("-" * 50)
+            print(f"question: \n: {question}")
+            print("-" * 50)
+            print(f"answer: \n: {full_answer}")
+            print("-" * 50)
+            print(f"contexts: \n: {contexts}")
+            print("-" * 50)
             
     df = pd.DataFrame(data)
     print(df)
     return df
             
-def evaluate_rag(df: DataFrame) -> DataFrame:
+def evalute_rag(df: DataFrame) -> DataFrame:
+
+    """
+    使用 DeepSeek API 进行 RAGAS 评估（LLM + Embedding 均走云端）
+    """
+    # ============================================================
+    # 1. 创建 DeepSeek 异步客户端（兼容 OpenAI API）
+    # ============================================================
+    DEEPSEEK_API_KEY = os.environ.get("DEEPSEEK_API_KEY")
+    if not DEEPSEEK_API_KEY:
+        raise ValueError("环境变量 DEEPSEEK_API_KEY 未设置，请设置后重试。")
+
+    # 官方推荐 base_url：https://api.deepseek.com/v1
+    async_deepseek_client = AsyncOpenAI(
+        base_url="https://api.deepseek.com/v1",
+        api_key=DEEPSEEK_API_KEY,
+        timeout=60.0,          # 避免长时请求挂起
+        max_retries=2,         # 自动重试
+    )
 
     # ============================================================
-    # 使用 Ollama 的 OpenAI 兼容 API
+    # 2. 配置评估用 LLM（使用 DeepSeek Chat 模型）
     # ============================================================
+    # ragas.llm.llm_factory 支持 provider="openai"，配合自定义 client
+    evaluator_llm = llm_factory(
+        model="deepseek-v4-flash",           # DeepSeek 对话模型
+        provider="openai",
+        client=async_deepseek_client,
+        max_tokens=16384,                 # 避免输出截断（DeepSeek 支持 16k）
+        temperature=0.0,                 # 评估时使用确定性输出
+        system_prompt=(
+        "You are a strict RAG evaluation judge. "
+        "When evaluating, keep your reasoning extremely brief (2-3 sentences per claim). "
+        "Always output a complete, valid JSON object. "
+        "Never truncate your response. Prioritize JSON completeness over detailed explanation."
+        ),
+    )
+
     async_ollama_client = AsyncOpenAI(
         base_url="http://localhost:11434/v1",
         api_key="ollama"
     )
-
-    # 使用 ragas 0.4 官方 llm_factory 创建 LLM
-    # 注意: ragas 默认 max_tokens=1024, 结构化JSON输出很容易被截断,
-    # 报错 IncompleteOutputException: The output is incomplete due to a max_tokens length limit.
-    evaluator_llm = llm_factory(
-        "qwen3.5:9b",
-        provider="openai",
-        client=async_ollama_client,
-        max_tokens=16384,
-        temperature=0.0,
-        system_prompt=(
-            "You are a strict RAG evaluation judge. "
-            "When evaluating, keep your reasoning extremely brief (2-3 sentences per claim). "
-            "Always output a complete, valid JSON object. "
-            "Never truncate your response. Prioritize JSON completeness over detailed explanation."
-        ),
-)
 
     # 使用 ragas 0.4 原生 OpenAIEmbeddings 连接 Ollama
     evaluator_embeddings = OpenAIEmbeddings(
@@ -156,31 +176,24 @@ def evaluate_rag(df: DataFrame) -> DataFrame:
     scores_answer_relevancy = []
     scores_context_precision = []
 
-    # Ollama 单卡串行推理, 限制并发数, 避免请求堆积导致超时
-    sem = asyncio.Semaphore(max(1, settings.OLLAMA_LLM_MAX_CONCURRENT))
-
-    async def limited(coro):
-        async with sem:
-            return await coro
-
     async def score_row(row):
         """对单条数据并行计算所有指标, 单条失败不影响整体"""
         try:
             f_score, ar_score, cp_score = await asyncio.gather(
-                limited(faithfulness.ascore(
+                faithfulness.ascore(
                     user_input=row["question"],
                     response=row["answer"],
                     retrieved_contexts=row["contexts"],
-                )),
-                limited(answer_relevancy.ascore(
+                ),
+                answer_relevancy.ascore(
                     user_input=row["question"],
                     response=row["answer"],
-                )),
-                limited(contextUtilization.ascore(
+                ),
+                contextUtilization.ascore(
                     user_input=row["question"],
                     response=row["answer"],
                     retrieved_contexts=row["contexts"],
-                )),
+                ),
             )
             return f_score.value, ar_score.value, cp_score.value
         except Exception as e:
@@ -201,9 +214,9 @@ def evaluate_rag(df: DataFrame) -> DataFrame:
     # 将评分结果写回 DataFrame
     df["faithfulness"] = scores_faithfulness
     df["answer_relevancy"] = scores_answer_relevancy
-    df["context_precision"] = scores_context_precision
+    df["contextUtilization"] = scores_context_precision
 
-    score_cols = ["faithfulness", "answer_relevancy", "context_precision"]
+    score_cols = ["faithfulness", "answer_relevancy", "contextUtilization"]
     failed_count = int(df[score_cols].isna().any(axis=1).sum())
     print(f"\n成功评分: {len(df) - failed_count}/{len(df)} 条, 失败(跳过): {failed_count} 条")
 
@@ -220,4 +233,4 @@ def evaluate_rag(df: DataFrame) -> DataFrame:
 
 if __name__ == "__main__":
     df = fetch_lanfuse_dataset()
-    #evaluate_result = evaluate_rag(df)
+    evaluate_result = evalute_rag(df)

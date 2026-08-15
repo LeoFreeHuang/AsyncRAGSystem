@@ -116,18 +116,18 @@ class Settings(BaseSettings):
 
     # ==================== 重排配置 ====================
     RERANKER_MODEL: str = Field(default="E:\\AI_Models\\BAAI\\bge-reranker-large", description="重排模型路径")
-    RERANKER_BATCH_SIZE: int = Field(default=32, description="重排模型批处理大小")
-    RERANKER_MAX_LENGTH: int = Field(default=8196, description="重排模型处理的文档最大长度")
-    RERANKER_USER_FP16: bool = Field(default=False, description="精度减半，显存紧张时 GPU 上可开启，CPU 推理建议关闭")
+    RERANKER_BATCH_SIZE: int = Field(default=64, description="重排模型批处理大小")
+    RERANKER_MAX_LENGTH: int = Field(default=8192, description="重排模型处理的文档最大长度")
+    RERANKER_USER_FP16: bool = Field(default=True, description="精度减半，显存紧张时 GPU 上可开启，CPU 推理建议关闭")
     RERANKER_ENABLED: bool = Field(default=True, description="是否精排")
-    RERANKER_DEVICE: str = Field(default="cpu", description="重排模型运行的设备")
+    RERANKER_DEVICE: str = Field(default="cuda", description="重排模型运行的设备")
 
     # ==================== LLM 生成配置 ====================
     LLM_TEMPERATURE: float = Field(
         default=0.1, ge=0.0, le=2.0, description="LLM生成温度 (越低越确定性)"
     )
-    LLM_MAX_TOKENS: int = Field(default=8196, description="LLM最大生成token数")
-    LLM_TIMEOUT: int = Field(default=120, description="LLM请求超时时间 (秒)")
+    LLM_MAX_TOKENS: int = Field(default=8192, description="LLM最大生成token数")
+    LLM_TIMEOUT: int = Field(default=300, description="LLM请求超时时间 (秒)")
 
     # ==================== Ollama 并发控制 ====================
     # Ollama在单GPU上实际只能串行推理，此信号量控制同时发往Ollama的请求数
