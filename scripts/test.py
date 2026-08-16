@@ -2,7 +2,7 @@ import requests
 import json
 
 url = "http://localhost:8000/api/v1/query/stream"
-payload = {"question": "诸葛亮火烧博望坡的详情", "top_k": 3, "temperature": 0.3}
+payload = {"question": "赵云长坂坡之战", "top_k": 3, "temperature": 0.3}
 
 with requests.post(url, json=payload, stream=True) as response:
     full_answer = ""

@@ -24,6 +24,8 @@ from app.services.reranker import RerankService
 
 logger = logging.getLogger(__name__)
 
+from app.config import settings
+
 # ============================================================
 # 全局服务单例
 # 在应用启动时创建，整个生命周期内复用
@@ -58,8 +60,8 @@ async def init_services(embedding_dimension: int | None = None):
     logger.info("正在初始化服务...")
 
     # 创建基础服务, 立即创建服务，遵循Fail-Fast设计原则
-    _embedding_service = EmbeddingService()
-    await _embedding_service.startup()
+    _embedding_service = EmbeddingService(load_type=settings.EMBEDDING_LOAD_TYPE)
+    await _embedding_service.startup(load_type=settings.EMBEDDING_LOAD_TYPE)
 
     _rerank_service = RerankService()
 

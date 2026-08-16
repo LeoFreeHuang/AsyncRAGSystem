@@ -234,7 +234,7 @@ if __name__ == "__main__":
         "app.main:app",
         host=settings.HOST,
         port=settings.PORT,
-        workers=1,          # 开发模式单worker (方便调试)
+        workers=4,          # 开发模式单worker (方便调试)
         reload=True,        # 代码变更自动重载
         log_level="info",
     )

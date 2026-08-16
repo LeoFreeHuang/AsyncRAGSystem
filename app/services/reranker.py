@@ -6,7 +6,7 @@ AsyncRAGSystem - 重排服务 (Reranker Service)
 """
 
 import asyncio
-from typing import List, Union, Tuple, Dict, Any
+from typing import List, Tuple, Dict, Any
 from sentence_transformers import CrossEncoder
 import torch
 import logging
